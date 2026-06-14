@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Sipariş Defteri</title>
+
+<!-- PWA / Ana ekran ayarları -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Siparişler" />
+<meta name="theme-color" content="#f7f2eb" />
+
+<!-- Ana ekran ikonu (lüle/seramik temalı, SVG -> PNG data URI) -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23c98a4b'/%3E%3Ccircle cx='50' cy='42' r='20' fill='%23fffdfa'/%3E%3Crect x='46' y='58' width='8' height='28' rx='4' fill='%23fffdfa'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23c98a4b'/%3E%3Ccircle cx='50' cy='42' r='20' fill='%23fffdfa'/%3E%3Crect x='46' y='58' width='8' height='28' rx='4' fill='%23fffdfa'/%3E%3C/svg%3E" />
+
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+    background: #f7f2eb;
+    color: #3d3530;
+    min-height: 100vh;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  input, textarea, button { font-family: inherit; }
+  input:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid #c98a4b;
+    outline-offset: 1px;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useMemo } = React;
+
+const STORAGE_KEY = 'lule-siparisler-v1';
+
+const HAZIRLIK_DURUMLARI = [
+  { value: 'bekliyor', label: 'Bekliyor', color: '#9b8b7a' },
+  { value: 'hazirlaniyor', label: 'Hazırlanıyor', color: '#c98a4b' },
+  { value: 'kismen-hazir', label: 'Kısmen Hazır', color: '#b8923f' },
+  { value: 'hazir', label: 'Hazır', color: '#5a8a5a' },
+];
+
+const TESLIMAT_TIPLERI = [
+  { value: 'bekliyor', label: 'Belirlenmedi' },
+  { value: 'kargo', label: 'Kargo' },
+  { value: 'elden', label: 'Elden' },
+];
+
+const ODEME_DURUMLARI = [
+  { value: 'alinmadi', label: 'Alınmadı', color: '#b5564a' },
+  { value: 'kismi', label: 'Kısmi Ödeme', color: '#b8923f' },
+  { value: 'alindi', label: 'Alındı', color: '#5a8a5a' },
+];
+
+// ---- Basit ikonlar (lucide yerine inline SVG, dış bağımlılık yok) ----
+const Icon = ({ d, size = 18, color = 'currentColor', strokeWidth = 2, viewBox = "0 0 24 24" }) => (
+  <svg width={size} height={size} viewBox={viewBox} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+    {d}
+  </svg>
+);
+const PlusIcon = (p) => <Icon {...p} d={<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>} />;
+const XIcon = (p) => <Icon {...p} d={<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>} />;
+const PackageIcon = (p) => <Icon {...p} d={<><path d="M16.5 9.4 7.5 4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12.01l8.73-5.05"/><line x1="12" y1="22.08" x2="12" y2="12"/></>} />;
+const TruckIcon = (p) => <Icon {...p} d={<><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></>} />;
+const HandIcon = (p) => <Icon {...p} d={<><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></>} />;
+const CheckCircleIcon = (p) => <Icon {...p} d={<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>} />;
+const CircleIcon = (p) => <Icon {...p} d={<circle cx="12" cy="12" r="10"/>} />;
+const CircleDotIcon = (p) => <Icon {...p} d={<><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1" fill={p.color || 'currentColor'}/></>} />;
+const SearchIcon = (p) => <Icon {...p} d={<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>} />;
+const ChevronDownIcon = (p) => <Icon {...p} d={<polyline points="6 9 12 15 18 9"/>} />;
+const ChevronUpIcon = (p) => <Icon {...p} d={<polyline points="18 15 12 9 6 15"/>} />;
+const Trash2Icon = (p) => <Icon {...p} d={<><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></>} />;
+const Edit3Icon = (p) => <Icon {...p} d={<><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></>} />;
+
+function emptyOrder() {
+  return {
+    id: Date.now().toString() + Math.random().toString(36).slice(2),
+    cariAdi: '',
+    telefon: '',
+    urunAdi: '',
+    adet: 1,
+    birimFiyat: 0,
+    kdvDahil: true,
+    faturaKesilecek: false,
+    faturaKesildi: false,
+    hazirlikDurumu: 'bekliyor',
+    hazirlikYuzde: 0,
+    teslimatTipi: 'bekliyor',
+    teslimatYapildi: false,
+    odemeDurumu: 'alinmadi',
+    alinanTutar: 0,
+    notlar: '',
+    olusturmaTarihi: new Date().toISOString(),
+  };
+}
+
+function formatTL(n) {
+  const num = Number(n) || 0;
+  return num.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₺';
+}
+
+function toplamTutar(order) {
+  return (Number(order.adet) || 0) * (Number(order.birimFiyat) || 0);
+}
+
+function App() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(emptyOrder());
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('hepsi');
+  const [expandedId, setExpandedId] = useState(null);
+
+  // Load from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setOrders(Array.isArray(parsed) ? parsed : []);
+      }
+    } catch (e) {
+      console.error('Yükleme hatası', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Save to localStorage
+  useEffect(() => {
+    if (loading) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
+    } catch (e) {
+      console.error('Kayıt hatası', e);
+    }
+  }, [orders, loading]);
+
+  const openNewForm = () => {
+    setForm(emptyOrder());
+    setEditingId(null);
+    setShowForm(true);
+  };
+
+  const openEditForm = (order) => {
+    setForm({ ...order });
+    setEditingId(order.id);
+    setShowForm(true);
+  };
+
+  const saveForm = () => {
+    if (!form.cariAdi.trim() || !form.urunAdi.trim()) return;
+    if (editingId) {
+      setOrders(prev => prev.map(o => o.id === editingId ? { ...form } : o));
+    } else {
+      setOrders(prev => [{ ...form }, ...prev]);
+    }
+    setShowForm(false);
+  };
+
+  const deleteOrder = (id) => {
+    setOrders(prev => prev.filter(o => o.id !== id));
+    setExpandedId(null);
+  };
+
+  const filteredOrders = useMemo(() => {
+    let list = orders;
+    if (search.trim()) {
+      const s = search.trim().toLowerCase();
+      list = list.filter(o =>
+        o.cariAdi.toLowerCase().includes(s) ||
+        o.urunAdi.toLowerCase().includes(s) ||
+        (o.telefon || '').includes(s)
+      );
+    }
+    if (filter === 'odeme-bekleyen') {
+      list = list.filter(o => o.odemeDurumu !== 'alindi');
+    } else if (filter === 'hazirlanmamis') {
+      list = list.filter(o => o.hazirlikDurumu !== 'hazir');
+    } else if (filter === 'teslim-bekleyen') {
+      list = list.filter(o => !o.teslimatYapildi);
+    } else if (filter === 'fatura-bekleyen') {
+      list = list.filter(o => o.faturaKesilecek && !o.faturaKesildi);
+    }
+    return list.slice().sort((a, b) => new Date(b.olusturmaTarihi) - new Date(a.olusturmaTarihi));
+  }, [orders, search, filter]);
+
+  const stats = useMemo(() => {
+    const toplamCiro = orders.reduce((s, o) => s + toplamTutar(o), 0);
+    const alinanToplam = orders.reduce((s, o) => {
+      if (o.odemeDurumu === 'alindi') return s + toplamTutar(o);
+      if (o.odemeDurumu === 'kismi') return s + (Number(o.alinanTutar) || 0);
+      return s;
+    }, 0);
+    const bekleyenAlacak = toplamCiro - alinanToplam;
+    const hazirlanmamis = orders.filter(o => o.hazirlikDurumu !== 'hazir').length;
+    const teslimBekleyen = orders.filter(o => !o.teslimatYapildi).length;
+    return { toplamCiro, alinanToplam, bekleyenAlacak, hazirlanmamis, teslimBekleyen, toplamSiparis: orders.length };
+  }, [orders]);
+
+  if (loading) {
+    return (
+      <div style={styles.loadingScreen}>
+        <div style={styles.loadingDot} />
+        <p style={{ color: '#7a6f63', fontFamily: 'Georgia, serif', marginTop: 16 }}>Siparişler yükleniyor…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.app}>
+      {/* Header */}
+      <header style={styles.header}>
+        <div>
+          <div style={styles.eyebrow}>Lüle Atölyesi</div>
+          <h1 style={styles.title}>Sipariş Defteri</h1>
+        </div>
+        <button onClick={openNewForm} style={styles.addBtn} aria-label="Yeni sipariş ekle">
+          <PlusIcon size={22} color="#fff" />
+        </button>
+      </header>
+
+      {/* Stats */}
+      <div style={styles.statsRow}>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Toplam Ciro</div>
+          <div style={styles.statValue}>{formatTL(stats.toplamCiro)}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Bekleyen Alacak</div>
+          <div style={{ ...styles.statValue, color: stats.bekleyenAlacak > 0 ? '#b5564a' : '#5a8a5a' }}>
+            {formatTL(stats.bekleyenAlacak)}
+          </div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Hazır Değil</div>
+          <div style={styles.statValue}>{stats.hazirlanmamis}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Teslim Bekleyen</div>
+          <div style={styles.statValue}>{stats.teslimBekleyen}</div>
+        </div>
+      </div>
+
+      {/* Search & filter */}
+      <div style={styles.searchRow}>
+        <div style={styles.searchBox}>
+          <SearchIcon size={16} color="#9b8b7a" />
+          <input
+            style={styles.searchInput}
+            placeholder="Cari, ürün veya telefon ara…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+      <div style={styles.filterRow}>
+        {[
+          { value: 'hepsi', label: 'Tümü' },
+          { value: 'odeme-bekleyen', label: 'Ödeme Bekleyen' },
+          { value: 'hazirlanmamis', label: 'Hazır Değil' },
+          { value: 'teslim-bekleyen', label: 'Teslim Bekleyen' },
+          { value: 'fatura-bekleyen', label: 'Fatura Bekleyen' },
+        ].map(f => (
+          <button
+            key={f.value}
+            onClick={() => setFilter(f.value)}
+            style={{
+              ...styles.filterChip,
+              ...(filter === f.value ? styles.filterChipActive : {})
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Order list */}
+      <div style={styles.list}>
+        {filteredOrders.length === 0 && (
+          <div style={styles.emptyState}>
+            <PackageIcon size={32} color="#c4b8a8" />
+            <p style={styles.emptyText}>
+              {orders.length === 0
+                ? 'Henüz sipariş yok. + ile ilk siparişi ekleyin.'
+                : 'Bu filtreye uyan sipariş bulunamadı.'}
+            </p>
+          </div>
+        )}
+        {filteredOrders.map(order => {
+          const expanded = expandedId === order.id;
+          const hazirlik = HAZIRLIK_DURUMLARI.find(h => h.value === order.hazirlikDurumu);
+          const odeme = ODEME_DURUMLARI.find(o => o.value === order.odemeDurumu);
+          const toplam = toplamTutar(order);
+          const kalan = order.odemeDurumu === 'alindi' ? 0 : order.odemeDurumu === 'kismi' ? toplam - (Number(order.alinanTutar) || 0) : toplam;
+
+          return (
+            <div key={order.id} style={styles.card}>
+              <div style={styles.cardHeader} onClick={() => setExpandedId(expanded ? null : order.id)}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={styles.cardCari}>{order.cariAdi}</div>
+                  <div style={styles.cardUrun}>{order.urunAdi} · {order.adet} adet</div>
+                </div>
+                <div style={styles.cardRight}>
+                  <div style={styles.cardTutar}>{formatTL(toplam)}</div>
+                  <div style={styles.badgeRow}>
+                    <span style={{ ...styles.badge, background: hazirlik.color + '22', color: hazirlik.color }}>
+                      {hazirlik.label}
+                    </span>
+                    <span style={{ ...styles.badge, background: odeme.color + '22', color: odeme.color }}>
+                      {odeme.label}
+                    </span>
+                  </div>
+                </div>
+                {expanded ? <ChevronUpIcon size={18} color="#9b8b7a" /> : <ChevronDownIcon size={18} color="#9b8b7a" />}
+              </div>
+
+              {expanded && (
+                <div style={styles.cardBody}>
+                  <div style={styles.detailGrid}>
+                    <DetailRow label="Birim Fiyat" value={`${formatTL(order.birimFiyat)} ${order.kdvDahil ? '(KDV dahil)' : '(KDV hariç)'}`} />
+                    <DetailRow label="Toplam Tutar" value={formatTL(toplam)} />
+                    <DetailRow label="Telefon" value={order.telefon || '—'} />
+                    <DetailRow
+                      label="Fatura"
+                      value={
+                        !order.faturaKesilecek ? 'Kesilmeyecek' : order.faturaKesildi ? 'Kesildi ✓' : 'Kesilecek (bekliyor)'
+                      }
+                    />
+                    <DetailRow
+                      label="Hazırlık"
+                      value={order.hazirlikDurumu === 'kismen-hazir' ? `Kısmen hazır (%${order.hazirlikYuzde})` : hazirlik.label}
+                    />
+                    <DetailRow
+                      label="Teslimat"
+                      value={
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {order.teslimatTipi === 'kargo' ? <TruckIcon size={14} /> : order.teslimatTipi === 'elden' ? <HandIcon size={14} /> : null}
+                          {TESLIMAT_TIPLERI.find(t => t.value === order.teslimatTipi).label}
+                          {order.teslimatTipi !== 'bekliyor' && (order.teslimatYapildi ? ' — Teslim edildi ✓' : ' — Bekliyor')}
+                        </span>
+                      }
+                    />
+                    <DetailRow
+                      label="Ödeme"
+                      value={
+                        order.odemeDurumu === 'kismi'
+                          ? `${formatTL(order.alinanTutar)} alındı, ${formatTL(kalan)} kaldı`
+                          : odeme.label
+                      }
+                    />
+                    {order.notlar && <DetailRow label="Not" value={order.notlar} fullWidth />}
+                  </div>
+                  <div style={styles.cardActions}>
+                    <button style={styles.actionBtn} onClick={() => openEditForm(order)}>
+                      <Edit3Icon size={15} /> Düzenle
+                    </button>
+                    <button style={{ ...styles.actionBtn, color: '#b5564a' }} onClick={() => deleteOrder(order.id)}>
+                      <Trash2Icon size={15} /> Sil
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Form modal */}
+      {showForm && (
+        <div style={styles.overlay} onClick={() => setShowForm(false)}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>{editingId ? 'Siparişi Düzenle' : 'Yeni Sipariş'}</h2>
+              <button style={styles.closeBtn} onClick={() => setShowForm(false)}>
+                <XIcon size={20} />
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <Section title="Cari Bilgileri">
+                <Field label="Cari adı / Müşteri" required>
+                  <input style={styles.input} value={form.cariAdi} onChange={e => setForm(f => ({ ...f, cariAdi: e.target.value }))} placeholder="Ad Soyad / Firma" />
+                </Field>
+                <Field label="Telefon">
+                  <input style={styles.input} value={form.telefon} onChange={e => setForm(f => ({ ...f, telefon: e.target.value }))} placeholder="05xx xxx xx xx" />
+                </Field>
+              </Section>
+
+              <Section title="Ürün ve Fiyat">
+                <Field label="Ürün adı" required>
+                  <input style={styles.input} value={form.urunAdi} onChange={e => setForm(f => ({ ...f, urunAdi: e.target.value }))} placeholder="Örn: Menemen kil lüle" />
+                </Field>
+                <div style={styles.twoCol}>
+                  <Field label="Adet">
+                    <input type="number" min="1" style={styles.input} value={form.adet} onChange={e => setForm(f => ({ ...f, adet: e.target.value }))} />
+                  </Field>
+                  <Field label="Birim fiyat (₺)">
+                    <input type="number" min="0" step="0.01" style={styles.input} value={form.birimFiyat} onChange={e => setForm(f => ({ ...f, birimFiyat: e.target.value }))} />
+                  </Field>
+                </div>
+                <ToggleField
+                  label="KDV durumu"
+                  value={form.kdvDahil}
+                  onChange={v => setForm(f => ({ ...f, kdvDahil: v }))}
+                  trueLabel="KDV Dahil"
+                  falseLabel="KDV Hariç"
+                />
+                <div style={styles.totalPreview}>
+                  Toplam: <strong>{formatTL(toplamTutar(form))}</strong>
+                </div>
+              </Section>
+
+              <Section title="Fatura">
+                <CheckField
+                  label="Fatura kesilecek"
+                  checked={form.faturaKesilecek}
+                  onChange={v => setForm(f => ({ ...f, faturaKesilecek: v, faturaKesildi: v ? f.faturaKesildi : false }))}
+                />
+                {form.faturaKesilecek && (
+                  <CheckField
+                    label="Fatura kesildi"
+                    checked={form.faturaKesildi}
+                    onChange={v => setForm(f => ({ ...f, faturaKesildi: v }))}
+                  />
+                )}
+              </Section>
+
+              <Section title="Hazırlık Durumu">
+                <SelectField
+                  value={form.hazirlikDurumu}
+                  onChange={v => setForm(f => ({ ...f, hazirlikDurumu: v }))}
+                  options={HAZIRLIK_DURUMLARI}
+                />
+                {form.hazirlikDurumu === 'kismen-hazir' && (
+                  <Field label={`Hazır oranı: %${form.hazirlikYuzde}`}>
+                    <input
+                      type="range" min="0" max="100" step="5"
+                      style={styles.range}
+                      value={form.hazirlikYuzde}
+                      onChange={e => setForm(f => ({ ...f, hazirlikYuzde: Number(e.target.value) }))}
+                    />
+                  </Field>
+                )}
+              </Section>
+
+              <Section title="Teslimat">
+                <SelectField
+                  value={form.teslimatTipi}
+                  onChange={v => setForm(f => ({ ...f, teslimatTipi: v, teslimatYapildi: v === 'bekliyor' ? false : f.teslimatYapildi }))}
+                  options={TESLIMAT_TIPLERI}
+                />
+                {form.teslimatTipi !== 'bekliyor' && (
+                  <CheckField
+                    label={form.teslimatTipi === 'kargo' ? 'Kargoya verildi' : 'Elden teslim edildi'}
+                    checked={form.teslimatYapildi}
+                    onChange={v => setForm(f => ({ ...f, teslimatYapildi: v }))}
+                  />
+                )}
+              </Section>
+
+              <Section title="Ödeme">
+                <SelectField
+                  value={form.odemeDurumu}
+                  onChange={v => setForm(f => ({ ...f, odemeDurumu: v }))}
+                  options={ODEME_DURUMLARI}
+                />
+                {form.odemeDurumu === 'kismi' && (
+                  <Field label="Alınan tutar (₺)">
+                    <input type="number" min="0" step="0.01" style={styles.input} value={form.alinanTutar} onChange={e => setForm(f => ({ ...f, alinanTutar: e.target.value }))} />
+                  </Field>
+                )}
+              </Section>
+
+              <Section title="Notlar">
+                <textarea
+                  style={{ ...styles.input, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+                  value={form.notlar}
+                  onChange={e => setForm(f => ({ ...f, notlar: e.target.value }))}
+                  placeholder="Ek bilgi, renk tercihi, vb."
+                />
+              </Section>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button style={styles.cancelBtn} onClick={() => setShowForm(false)}>Vazgeç</button>
+              <button
+                style={{
+                  ...styles.saveBtn,
+                  opacity: (!form.cariAdi.trim() || !form.urunAdi.trim()) ? 0.5 : 1,
+                }}
+                onClick={saveForm}
+                disabled={!form.cariAdi.trim() || !form.urunAdi.trim()}
+              >
+                {editingId ? 'Kaydet' : 'Siparişi Ekle'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Section({ title, children }) {
+  return (
+    <div style={styles.section}>
+      <div style={styles.sectionTitle}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, required, children }) {
+  return (
+    <div style={styles.field}>
+      <label style={styles.label}>{label}{required && <span style={{ color: '#c98a4b' }}> *</span>}</label>
+      {children}
+    </div>
+  );
+}
+
+function ToggleField({ label, value, onChange, trueLabel, falseLabel }) {
+  return (
+    <div style={styles.field}>
+      <label style={styles.label}>{label}</label>
+      <div style={styles.toggleRow}>
+        <button
+          style={{ ...styles.toggleBtn, ...(value ? styles.toggleBtnActive : {}) }}
+          onClick={() => onChange(true)}
+          type="button"
+        >
+          {trueLabel}
+        </button>
+        <button
+          style={{ ...styles.toggleBtn, ...(!value ? styles.toggleBtnActive : {}) }}
+          onClick={() => onChange(false)}
+          type="button"
+        >
+          {falseLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CheckField({ label, checked, onChange }) {
+  return (
+    <button type="button" style={styles.checkRow} onClick={() => onChange(!checked)}>
+      {checked ? <CheckCircleIcon size={20} color="#c98a4b" /> : <CircleIcon size={20} color="#c4b8a8" />}
+      <span style={{ color: checked ? '#3d3530' : '#7a6f63' }}>{label}</span>
+    </button>
+  );
+}
+
+function SelectField({ value, onChange, options }) {
+  return (
+    <div style={styles.selectGrid}>
+      {options.map(opt => (
+        <button
+          key={opt.value}
+          type="button"
+          style={{
+            ...styles.selectOption,
+            ...(value === opt.value ? {
+              borderColor: opt.color || '#c98a4b',
+              background: (opt.color || '#c98a4b') + '1a',
+              color: opt.color || '#c98a4b',
+            } : {}),
+          }}
+          onClick={() => onChange(opt.value)}
+        >
+          {value === opt.value ? <CircleDotIcon size={14} color={opt.color || '#c98a4b'} /> : <CircleIcon size={14} color="#c4b8a8" />}
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DetailRow({ label, value, fullWidth }) {
+  return (
+    <div style={{ ...styles.detailRow, ...(fullWidth ? { gridColumn: '1 / -1' } : {}) }}>
+      <div style={styles.detailLabel}>{label}</div>
+      <div style={styles.detailValue}>{value}</div>
+    </div>
+  );
+}
+
+const styles = {
+  app: {
+    fontFamily: "'Avenir Next', 'Segoe UI', system-ui, sans-serif",
+    background: '#f7f2eb',
+    minHeight: '100vh',
+    color: '#3d3530',
+    paddingBottom: 40,
+  },
+  loadingScreen: {
+    minHeight: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#f7f2eb',
+  },
+  loadingDot: {
+    width: 14, height: 14, borderRadius: '50%',
+    background: '#c98a4b',
+    animation: 'pulse 1.2s ease-in-out infinite',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    padding: '28px 20px 16px',
+    borderBottom: '2px solid #e6dccd',
+  },
+  eyebrow: {
+    fontSize: 12,
+    letterSpacing: '0.15em',
+    textTransform: 'uppercase',
+    color: '#b8923f',
+    fontWeight: 600,
+    marginBottom: 4,
+  },
+  title: {
+    fontFamily: "Georgia, 'Times New Roman', serif",
+    fontSize: 28,
+    fontWeight: 600,
+    margin: 0,
+    color: '#3d3530',
+  },
+  addBtn: {
+    width: 48, height: 48,
+    borderRadius: '50%',
+    border: 'none',
+    background: '#c98a4b',
+    color: '#fff',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer',
+    boxShadow: '0 4px 12px rgba(201,138,75,0.35)',
+  },
+  statsRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: 10,
+    padding: '16px 20px',
+  },
+  statCard: {
+    background: '#fffdfa',
+    border: '1px solid #e6dccd',
+    borderRadius: 14,
+    padding: '12px 14px',
+  },
+  statLabel: {
+    fontSize: 11,
+    color: '#9b8b7a',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 19,
+    fontWeight: 700,
+    fontFamily: "Georgia, serif",
+    color: '#3d3530',
+  },
+  searchRow: {
+    padding: '0 20px 10px',
+  },
+  searchBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    background: '#fffdfa',
+    border: '1px solid #e6dccd',
+    borderRadius: 12,
+    padding: '10px 14px',
+  },
+  searchInput: {
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    fontSize: 15,
+    width: '100%',
+    color: '#3d3530',
+    fontFamily: 'inherit',
+  },
+  filterRow: {
+    display: 'flex',
+    gap: 8,
+    padding: '0 20px 16px',
+    overflowX: 'auto',
+  },
+  filterChip: {
+    flexShrink: 0,
+    padding: '7px 14px',
+    borderRadius: 999,
+    border: '1px solid #e6dccd',
+    background: '#fffdfa',
+    color: '#7a6f63',
+    fontSize: 13,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  filterChipActive: {
+    background: '#3d3530',
+    color: '#fff',
+    borderColor: '#3d3530',
+  },
+  list: {
+    padding: '0 20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+  },
+  emptyState: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 12,
+    padding: '50px 20px',
+    textAlign: 'center',
+  },
+  emptyText: {
+    color: '#9b8b7a',
+    fontSize: 14,
+    margin: 0,
+    maxWidth: 240,
+  },
+  card: {
+    background: '#fffdfa',
+    border: '1px solid #e6dccd',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  cardHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '14px 16px',
+    cursor: 'pointer',
+  },
+  cardCari: {
+    fontWeight: 600,
+    fontSize: 15,
+    color: '#3d3530',
+    fontFamily: 'Georgia, serif',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  cardUrun: {
+    fontSize: 13,
+    color: '#9b8b7a',
+    marginTop: 2,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  cardRight: {
+    textAlign: 'right',
+    flexShrink: 0,
+  },
+  cardTutar: {
+    fontWeight: 700,
+    fontSize: 15,
+    fontFamily: 'Georgia, serif',
+    marginBottom: 4,
+  },
+  badgeRow: {
+    display: 'flex',
+    gap: 5,
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+  },
+  badge: {
+    fontSize: 10.5,
+    padding: '3px 8px',
+    borderRadius: 999,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+  },
+  cardBody: {
+    borderTop: '1px solid #f0e8dc',
+    padding: '14px 16px 16px',
+  },
+  detailGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '10px 16px',
+    marginBottom: 14,
+  },
+  detailRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: '#9b8b7a',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  detailValue: {
+    fontSize: 14,
+    color: '#3d3530',
+  },
+  cardActions: {
+    display: 'flex',
+    gap: 10,
+  },
+  actionBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    border: '1px solid #e6dccd',
+    background: '#fff',
+    borderRadius: 10,
+    padding: '8px 14px',
+    fontSize: 13,
+    color: '#7a6f63',
+    cursor: 'pointer',
+  },
+  overlay: {
+    position: 'fixed',
+    top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(61,53,48,0.4)',
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    zIndex: 50,
+  },
+  modal: {
+    background: '#f7f2eb',
+    width: '100%',
+    maxWidth: 480,
+    maxHeight: '92vh',
+    borderRadius: '20px 20px 0 0',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '18px 20px',
+    borderBottom: '1px solid #e6dccd',
+  },
+  modalTitle: {
+    fontFamily: 'Georgia, serif',
+    fontSize: 19,
+    margin: 0,
+  },
+  closeBtn: {
+    border: 'none',
+    background: '#ece2d4',
+    borderRadius: '50%',
+    width: 34, height: 34,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer',
+    color: '#7a6f63',
+  },
+  modalBody: {
+    overflowY: 'auto',
+    padding: '8px 20px 12px',
+    flex: 1,
+  },
+  modalFooter: {
+    display: 'flex',
+    gap: 10,
+    padding: '14px 20px',
+    borderTop: '1px solid #e6dccd',
+    background: '#f7f2eb',
+  },
+  section: {
+    padding: '14px 0',
+    borderBottom: '1px solid #ece2d4',
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#b8923f',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    marginBottom: 10,
+  },
+  field: {
+    marginBottom: 10,
+  },
+  label: {
+    display: 'block',
+    fontSize: 12,
+    color: '#9b8b7a',
+    marginBottom: 5,
+  },
+  input: {
+    width: '100%',
+    border: '1px solid #e6dccd',
+    background: '#fffdfa',
+    borderRadius: 10,
+    padding: '10px 12px',
+    fontSize: 15,
+    color: '#3d3530',
+    fontFamily: 'inherit',
+  },
+  twoCol: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 10,
+  },
+  toggleRow: {
+    display: 'flex',
+    gap: 8,
+  },
+  toggleBtn: {
+    flex: 1,
+    padding: '10px',
+    borderRadius: 10,
+    border: '1px solid #e6dccd',
+    background: '#fffdfa',
+    color: '#9b8b7a',
+    fontSize: 14,
+    cursor: 'pointer',
+  },
+  toggleBtnActive: {
+    borderColor: '#c98a4b',
+    background: '#c98a4b1a',
+    color: '#c98a4b',
+    fontWeight: 600,
+  },
+  totalPreview: {
+    fontSize: 14,
+    color: '#7a6f63',
+    marginTop: 6,
+  },
+  checkRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    border: 'none',
+    background: 'transparent',
+    padding: '8px 0',
+    cursor: 'pointer',
+    fontSize: 14,
+    width: '100%',
+    textAlign: 'left',
+  },
+  selectGrid: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  selectOption: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 14px',
+    borderRadius: 10,
+    border: '1px solid #e6dccd',
+    background: '#fffdfa',
+    color: '#7a6f63',
+    fontSize: 14,
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  range: {
+    width: '100%',
+  },
+  cancelBtn: {
+    flex: 1,
+    padding: '13px',
+    borderRadius: 12,
+    border: '1px solid #e6dccd',
+    background: '#fffdfa',
+    color: '#7a6f63',
+    fontSize: 15,
+    cursor: 'pointer',
+  },
+  saveBtn: {
+    flex: 2,
+    padding: '13px',
+    borderRadius: 12,
+    border: 'none',
+    background: '#c98a4b',
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
