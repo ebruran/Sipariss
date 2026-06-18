@@ -284,7 +284,8 @@ function render(){
   // filter
   const q=(document.getElementById('search').value||'').toLowerCase();
   let list=orders.filter(o=>{
-    if(q&&!(o.cari.toLowerCase().includes(q)||o.urun.toLowerCase().includes(q)||(o.tel||'').includes(q)))return false;
+    const cari=o.cari||o.cariAdi||'';const urun=o.urun||o.urunAdi||'';const tel=o.tel||o.telefon||'';
+    if(q&&!(cari.toLowerCase().includes(q)||urun.toLowerCase().includes(q)||tel.includes(q)))return false;
     if(activeFilter==='odeme')return o.odeme!=='alindi';
     if(activeFilter==='hazir')return o.hazirlik!=='hazir';
     if(activeFilter==='teslim')return !o.teslimatYapildi;
@@ -305,8 +306,8 @@ function render(){
     return `<div class="card">
       <div class="card-head" onclick="toggleCard('${o.id}')">
         <div class="card-main">
-          <div class="card-cari">${esc(o.cari)}</div>
-          <div class="card-urun">${esc(o.urun)} · ${o.adet} adet</div>
+          <div class="card-cari">${esc(o.cari||o.cariAdi||'')}</div>
+          <div class="card-urun">${esc(o.urun||o.urunAdi||'')} · ${o.adet} adet</div>
         </div>
         <div class="card-right">
           <div class="card-tutar">${fmt(t)}</div>
@@ -321,7 +322,7 @@ function render(){
         <div class="detail-grid">
           <div class="detail-row"><div class="detail-label">Birim Fiyat</div><div class="detail-value">${fmt(o.birimFiyat)} ${o.kdvDahil?'(KDV dahil)':'(KDV hariç)'}</div></div>
           <div class="detail-row"><div class="detail-label">Toplam</div><div class="detail-value">${fmt(t)}</div></div>
-          <div class="detail-row"><div class="detail-label">Telefon</div><div class="detail-value">${esc(o.tel||'—')}</div></div>
+          <div class="detail-row"><div class="detail-label">Telefon</div><div class="detail-value">${esc(o.tel||o.telefon||'—')}</div></div>
           <div class="detail-row"><div class="detail-label">Fatura</div><div class="detail-value">${!o.faturaKesilecek?'Kesilmeyecek':o.faturaKesildi?'Kesildi ✓':'Bekliyor'}</div></div>
           <div class="detail-row"><div class="detail-label">Hazırlık</div><div class="detail-value">${o.hazirlik==='kismen-hazir'?`Kısmen hazır (%${o.hazirlikYuzde})`:h.l}</div></div>
           <div class="detail-row"><div class="detail-label">Teslimat</div><div class="detail-value">${(TESLIMAT.find(x=>x.v===o.teslimat)||TESLIMAT[0]).l}${o.teslimat!=='belirsiz'?(o.teslimatYapildi?' — Teslim edildi ✓':' — Bekliyor'):''}</div></div>
@@ -449,7 +450,7 @@ function saveForm(){
   const urun=document.getElementById('f-urun').value.trim();
   if(!cari||!urun)return;
   const o={
-    id:editingId||uid(),
+    id:editingId||uid(),cariAdi:cari,urunAdi:urun,
     cari,urun,
     tel:document.getElementById('f-tel').value.trim(),
     adet:Number(document.getElementById('f-adet').value)||1,
